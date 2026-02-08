@@ -98,14 +98,14 @@ namespace MedievalVillage
             }
 
             // DayNightCycle
-            if (FindObjectOfType<DayNightCycle>() == null)
+            if (FindFirstObjectByType<DayNightCycle>() == null)
             {
                 var go = new GameObject("DayNightCycle");
                 go.AddComponent<DayNightCycle>();
             }
 
             // UISetup (auto-creates Canvas and all UI)
-            if (FindObjectOfType<UISetup>() == null)
+            if (FindFirstObjectByType<UISetup>() == null)
             {
                 var go = new GameObject("UISetup");
                 go.AddComponent<UISetup>();

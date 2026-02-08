@@ -48,7 +48,7 @@ namespace MedievalVillage
             uiManager = canvasGO.AddComponent<UIManager>();
 
             // EventSystem
-            if (FindObjectOfType<UnityEngine.EventSystems.EventSystem>() == null)
+            if (FindFirstObjectByType<UnityEngine.EventSystems.EventSystem>() == null)
             {
                 var esGO = new GameObject("EventSystem");
                 esGO.AddComponent<UnityEngine.EventSystems.EventSystem>();

@@ -1,92 +1,69 @@
-# 2D Medieval Village Simulator
+# Medieval Village Simulator
 
-A 2D strategy/city-builder/management game with a medieval theme, built in Unity.
+A 2D medieval village builder strategy game built with **Python** and **Pygame**.
 
-## Overview
+## Requirements
+- Python 3.10+
+- Pygame 2.5+
 
-Build and manage a medieval village from scratch. Place buildings, assign workers, produce resources, and keep your villagers alive. Start with 3 settlers and grow your village to a thriving community of 30+.
+## Installation & Run
 
-## Core Gameplay
-
-- **Build**: Place buildings on a tile-based map (farms, huts, wells, mills, bakeries, etc.)
-- **Assign**: Send villagers to work in production buildings
-- **Produce**: Create resources through production chains (Wheat → Flour → Bread)
-- **Survive**: Keep villagers fed and hydrated — unmet needs lead to death
-- **Grow**: Attract immigrants when food and housing are plentiful
-
-## Current State: MVP
-
-The MVP includes:
-- 50×50 procedurally generated tile map (grass, water, forest, stone, fertile land)
-- 9 building types (Woodcutter, Farm, Hut, Stockpile, Well, Granary, Mill, Bakery, Hunter's Lodge)
-- Population system with hunger/thirst needs and starvation/dehydration death
-- Day/night visual cycle
-- Production chain system
-- Auto-generated UI (no prefabs needed)
-- Win condition: reach population 30
-
-## Architecture
-
+```bash
+pip install pygame
+python main.py
 ```
-GameManager (orchestrator)
-├── GridManager          — tile map, placement validation
-├── CameraController     — pan/zoom (mouse + touch)
-├── BuildingManager      — place/demolish buildings
-├── ResourceManager      — village-wide resource stockpiles
-├── PopulationManager    — villager spawning, needs, immigration
-├── TimeManager          — day/night, speed control
-├── BuildingPlacer       — ghost preview, placement input
-├── SelectionManager     — click to inspect buildings/villagers
-├── UIManager            — HUD, panels, alerts
-└── DayNightCycle        — visual overlay
-```
-
-## How to Open
-
-1. Install **Unity 2022.3 LTS** or newer
-2. Open Unity Hub → "Add" → select this folder
-3. Open the project. Unity will import packages and generate the Library folder.
-4. Create an empty scene with a Camera and an empty GameObject named "Bootstrap"
-5. Attach the `SceneBootstrap` component to the Bootstrap object
-6. Press Play!
 
 ## Controls
+| Key | Action |
+|---|---|
+| **WASD / Arrows** | Pan camera |
+| **Scroll wheel** | Zoom in/out |
+| **Middle mouse drag** | Pan camera |
+| **Left click** | Select / Place building |
+| **Right click** | Cancel placement / Deselect |
+| **B** | Toggle build panel |
+| **Space** | Pause / Resume |
+| **1 / 2 / 3** | Normal / Fast / Fastest speed |
+| **R** | Restart game |
+| **ESC** | Cancel / Quit |
 
-- **WASD / Arrow Keys**: Pan camera
-- **Mouse Scroll**: Zoom
-- **Right-click drag**: Pan camera
-- **Left-click**: Select / Place building
-- **Escape**: Cancel placement / Close panels
+## How to Play
+1. Start by building a **Hut** to house your 3 starting villagers
+2. Build a **Woodcutter** near forests and a **Well** for water
+3. Build a **Farm** on fertile land (green tiles) for wheat
+4. Build a **Mill** and **Bakery** to turn wheat into bread (food)
+5. Expand housing to attract more villagers via immigration
+6. Keep your villagers fed and hydrated — they will die without food/water!
+7. **Win** by reaching a population of 30
+
+## Buildings
+| Building | Cost | Function |
+|---|---|---|
+| Hut | 20W 5S | Houses 4 villagers |
+| Farm | 25W | Produces wheat (fertile land) |
+| Woodcutter | 10W | Produces wood (near forest) |
+| Quarry | 15W 5S | Produces stone (on stone) |
+| Well | 10W 10S | Produces water |
+| Stockpile | 20W 10S | +100 storage |
+| Granary | 15W 10S | +60 storage |
+| Mill | 30W 15S | Wheat → Flour |
+| Bakery | 30W 15S | Flour → Food |
+| Hunter Lodge | 20W | Produces food (near forest) |
 
 ## Project Structure
-
 ```
-Assets/
-├── Scripts/
-│   ├── Core/           — SceneBootstrap
-│   ├── Data/           — Enums, Constants, ScriptableObjects, BuildingDataFactory
-│   ├── Managers/       — All system managers
-│   ├── UI/             — UIManager, UISetup
-│   ├── Utils/          — SpriteFactory
-│   └── Villager/       — Villager entity
-├── Scenes/             — (create MainScene in Unity)
-├── Prefabs/            — (placeholder for future prefabs)
-├── ScriptableObjects/  — (placeholder for SO assets)
-└── Sprites/            — (placeholder for art assets)
+main.py                 # Entry point
+requirements.txt        # Dependencies
+game/
+  __init__.py
+  constants.py          # All tuneable values
+  enums.py              # Game enumerations
+  camera.py             # Pan & zoom camera
+  grid.py               # Procedural map generation
+  time_manager.py       # Day/night cycle, seasons
+  buildings.py          # Building definitions & instances
+  resources.py          # Resource management
+  villagers.py          # Villager AI & needs
+  ui.py                 # HUD, panels, alerts
+  game_manager.py       # Main game loop & orchestrator
 ```
-
-## Development Roadmap
-
-- [x] Phase 0: Project setup, architecture, core systems
-- [ ] Phase 1: Playable prototype with core loop
-- [ ] Phase 2: Survival loop (seasons, firewood, alerts)
-- [ ] Phase 3: Production depth (chains, efficiency, upgrades)
-- [ ] Phase 4: Society (happiness, stress, village levels)
-- [ ] Phase 5: Economy & trade
-- [ ] Phase 6: World & exploration
-- [ ] Phase 7: Tech tree & events
-- [ ] Phase 8: Polish & ship
-
-## License
-
-Private project.

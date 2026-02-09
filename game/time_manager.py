@@ -1,4 +1,4 @@
-"""Game time management."""
+"""Game time management with season-change and new-day flags."""
 from .constants import (
     DAY_LENGTH_SECONDS, HOURS_PER_DAY, DAYS_PER_SEASON,
     DAWN_HOUR, DUSK_HOUR,
@@ -16,10 +16,18 @@ class TimeManager:
         self.year = 1
         self.speed = GameSpeed.NORMAL
         self.total_hours = 0.0
+        # Flags polled by game_manager each frame
+        self.new_day_flag = False
+        self.season_changed_flag = False
+        self.prev_season_index = 0
 
     @property
     def season(self):
         return self.SEASON_ORDER[self.season_index]
+
+    @property
+    def season_name(self):
+        return self.season.value
 
     @property
     def time_string(self):
@@ -42,18 +50,28 @@ class TimeManager:
     def update(self, dt):
         if self.speed == GameSpeed.PAUSED:
             return 0.0
+
+        self.new_day_flag = False
+        self.season_changed_flag = False
+
         hours_per_sec = HOURS_PER_DAY / DAY_LENGTH_SECONDS
         hours_elapsed = dt * hours_per_sec * self.speed_multiplier
         self.game_hour += hours_elapsed
         self.total_hours += hours_elapsed
+
         while self.game_hour >= HOURS_PER_DAY:
             self.game_hour -= HOURS_PER_DAY
             self.day += 1
+            self.new_day_flag = True
+
             if self.day > DAYS_PER_SEASON:
                 self.day = 1
+                self.prev_season_index = self.season_index
                 self.season_index = (self.season_index + 1) % 4
+                self.season_changed_flag = True
                 if self.season_index == 0:
                     self.year += 1
+
         return hours_elapsed
 
     def set_speed(self, speed: GameSpeed):

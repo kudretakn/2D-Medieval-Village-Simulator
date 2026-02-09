@@ -9,6 +9,7 @@ class TileType(Enum):
     STONE = "STONE"
     FERTILE = "FERTILE"
     SAND = "SAND"
+    DEPLETED = "DEPLETED"
 
 
 class ResourceType(Enum):
@@ -26,6 +27,8 @@ class BuildingCategory(Enum):
     HOUSING = auto()
     STORAGE = auto()
     PROCESSING = auto()
+    SERVICE = auto()
+    MILITARY = auto()
 
 
 class GameSpeed(Enum):
@@ -46,3 +49,16 @@ class VillagerState(Enum):
     IDLE = auto()
     WORKING = auto()
     SLEEPING = auto()
+    EATING = auto()
+    DRINKING = auto()
+    FLEEING = auto()
+    EMIGRATING = auto()
+
+
+class EventType(Enum):
+    DROUGHT = "Drought"
+    FIRE = "Fire"
+    WOLVES = "Wolf Attack"
+    BOUNTIFUL = "Bountiful Harvest"
+    PLAGUE = "Plague"
+    WANDERER = "Wandering Merchant"

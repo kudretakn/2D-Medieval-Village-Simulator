@@ -21,6 +21,8 @@ from .resources import ResourceManager
 from .villagers import Villager
 from .time_manager import TimeManager
 from .ui import UIManager
+from .sprites import generate_tile_variants, generate_building_sprite, generate_villager_sprite
+from .particles import ParticleSystem
 
 
 class Game:
@@ -46,39 +48,72 @@ class Game:
         self.selected = None
         self.placement_mode = None
         self.immigration_timer = 0.0
+        self.particles = ParticleSystem()
+        self.particle_timer = 0.0
+        self.water_anim_timer = 0.0
+        self.water_anim_frame = 0
         BuildingInstance._next_id = 0
         Villager._next_id = 0
+
+        # Generate visual sprites
+        self.tile_variants = generate_tile_variants(8)
+        self.building_sprites = {}
+        self.villager_sprites = {}
 
         # Spawn starting villagers near center
         cx, cy = MAP_WIDTH // 2, MAP_HEIGHT // 2
         for _ in range(STARTING_VILLAGERS):
             wx = (cx + random.uniform(-2, 2)) * TILE_SIZE
             wy = (cy + random.uniform(-2, 2)) * TILE_SIZE
-            self.villagers.append(Villager(wx, wy))
+            v = Villager(wx, wy)
+            self.villagers.append(v)
+            self._cache_villager_sprite(v)
 
         # Pre-render tile surface
         self._build_tile_surface()
         # Day/night overlay surface
         self.dn_surface = pygame.Surface((MAP_VIEW_W, MAP_VIEW_H), pygame.SRCALPHA)
 
+    def _cache_villager_sprite(self, v):
+        """Create and cache a villager sprite."""
+        self.villager_sprites[v.id] = generate_villager_sprite(
+            VILLAGER_SIZE * 2, v.color
+        )
+
+    def _cache_building_sprite(self, b):
+        """Create and cache a building sprite."""
+        self.building_sprites[b.id] = generate_building_sprite(
+            b.building_id, b.pixel_width, b.pixel_height
+        )
+
     def _build_tile_surface(self):
-        """Pre-render the entire tile map to a surface for fast drawing."""
+        """Pre-render the entire tile map with detailed procedural sprites."""
         w, h = MAP_WIDTH * TILE_SIZE, MAP_HEIGHT * TILE_SIZE
         self.tile_surface = pygame.Surface((w, h))
+        # Also store which variant index each tile uses for water animation
+        self.tile_variant_map = []
+        for y in range(MAP_HEIGHT):
+            row = []
+            for x in range(MAP_WIDTH):
+                tile = self.grid.get_tile(x, y)
+                if tile is None:
+                    row.append(0)
+                    continue
+                name = tile.value
+                variants = self.tile_variants.get(name, [])
+                vi = (x * 7 + y * 13) % len(variants) if variants else 0
+                row.append(vi)
+                if variants:
+                    self.tile_surface.blit(variants[vi],
+                                          (x * TILE_SIZE, y * TILE_SIZE))
+            self.tile_variant_map.append(row)
+        # Store water tile positions for animation
+        self.water_tiles = []
         for y in range(MAP_HEIGHT):
             for x in range(MAP_WIDTH):
-                r, g, b = self.grid.get_tile_color(x, y)
-                # Subtle per-tile variation
-                v = ((x * 7 + y * 13) % 20) - 10
-                c = (max(0, min(255, r + v)), max(0, min(255, g + v)),
-                     max(0, min(255, b + v)))
-                px, py = x * TILE_SIZE, y * TILE_SIZE
-                pygame.draw.rect(self.tile_surface, c,
-                                 (px, py, TILE_SIZE, TILE_SIZE))
-                # Thin grid lines
-                pygame.draw.rect(self.tile_surface,
-                                 (max(0, r - 20), max(0, g - 20), max(0, b - 20)),
-                                 (px, py, TILE_SIZE, TILE_SIZE), 1)
+                tile = self.grid.get_tile(x, y)
+                if tile and tile.value == "WATER":
+                    self.water_tiles.append((x, y))
 
     # ── Main loop ────────────────────────────────────────────
     def run(self):
@@ -152,6 +187,7 @@ class Game:
             if self.resource_mgr.spend(bd.cost):
                 b = BuildingInstance(self.placement_mode, tx, ty)
                 self.buildings.append(b)
+                self._cache_building_sprite(b)
                 self.resource_mgr.update_storage(self.buildings)
                 self._auto_assign_workers(b)
                 self._auto_assign_housing(b)
@@ -295,15 +331,18 @@ class Game:
                     nv.workplace = b
                     break
             self.ui.add_alert(f"{nv.name} has joined your village!")
+            self._cache_villager_sprite(nv)
 
     # ── Update ───────────────────────────────────────────────
     def _update(self, dt):
         if self.game_over or self.game_won:
+            self.particles.update(dt)
             return
         self.camera.update(dt)
         gh = self.time_mgr.update(dt)
         if gh > 0:
             for b in self.buildings:
+                had_output = dict(b.data.production_output) if b.data.production_output else {}
                 b.update_production(gh, self.resource_mgr)
             for v in self.villagers:
                 v.update(gh, self.time_mgr, self.resource_mgr)
@@ -322,6 +361,41 @@ class Game:
         spd = self.time_mgr.speed_multiplier if self.time_mgr.speed != GameSpeed.PAUSED else 0
         for v in self.villagers:
             v.update_movement(dt * spd)
+
+        # Particle effects
+        self.particles.update(dt)
+        self.particle_timer += dt
+        if self.particle_timer > 0.4:
+            self.particle_timer = 0
+            for b in self.buildings:
+                if b.building_id in ("bakery", "mill") and b.active and len(b.workers) > 0:
+                    self.particles.emit_smoke(
+                        b.world_x + b.pixel_width - 8,
+                        b.world_y + 2, count=1)
+                if b.data.production_output and b.active and len(b.workers) > 0:
+                    if random.random() < 0.3:
+                        self.particles.emit_sparkle(
+                            b.center_world[0], b.center_world[1],
+                            color=(255, 230, 120), count=2)
+            # Forest leaves
+            if random.random() < 0.3 and self.water_tiles:
+                wx, wy = random.choice(self.water_tiles)
+                self.particles.emit_water_ripple(
+                    wx * TILE_SIZE + TILE_SIZE // 2,
+                    wy * TILE_SIZE + TILE_SIZE // 2)
+
+        # Animated water tiles
+        self.water_anim_timer += dt
+        if self.water_anim_timer > 0.8:
+            self.water_anim_timer = 0
+            self.water_anim_frame = (self.water_anim_frame + 1) % 8
+            water_variants = self.tile_variants.get("WATER", [])
+            if water_variants:
+                for wx, wy in self.water_tiles:
+                    vi = (self.water_anim_frame + wx + wy) % len(water_variants)
+                    self.tile_surface.blit(water_variants[vi],
+                                          (wx * TILE_SIZE, wy * TILE_SIZE))
+
         self.ui.update(dt)
 
     # ── Render ───────────────────────────────────────────────
@@ -330,8 +404,10 @@ class Game:
         mr = pygame.Rect(MAP_VIEW_X, MAP_VIEW_Y, MAP_VIEW_W, MAP_VIEW_H)
         self.screen.set_clip(mr)
         self._draw_tiles()
+        self._draw_building_shadows()
         self._draw_buildings()
         self._draw_villagers()
+        self.particles.draw(self.screen, self.camera)
         if self.placement_mode:
             self._draw_ghost()
         self._draw_selection()
@@ -349,23 +425,45 @@ class Game:
         src = pygame.Rect(int(sx), int(sy), int(sw), int(sh))
         try:
             sub = self.tile_surface.subsurface(src)
-            scaled = pygame.transform.scale(sub, (MAP_VIEW_W, MAP_VIEW_H))
+            scaled = pygame.transform.smoothscale(sub, (MAP_VIEW_W, MAP_VIEW_H))
             self.screen.blit(scaled, (MAP_VIEW_X, MAP_VIEW_Y))
         except ValueError:
             pass
+
+    def _draw_building_shadows(self):
+        """Draw soft shadows under buildings for depth."""
+        z = self.camera.zoom
+        for b in self.buildings:
+            sx, sy = self.camera.world_to_screen(b.world_x, b.world_y)
+            sw, sh = b.pixel_width * z, b.pixel_height * z
+            shadow = pygame.Surface((int(sw) + 6, 8), pygame.SRCALPHA)
+            pygame.draw.ellipse(shadow, (0, 0, 0, 50),
+                                (0, 0, int(sw) + 6, 8))
+            self.screen.blit(shadow,
+                             (int(sx) - 3, int(sy) + int(sh) - 2))
 
     def _draw_buildings(self):
         z = self.camera.zoom
         font = self.ui.font_sm
         for b in self.buildings:
+            # Cache sprite on first draw
+            if b.id not in self.building_sprites:
+                self._cache_building_sprite(b)
+            sprite = self.building_sprites[b.id]
             sx, sy = self.camera.world_to_screen(b.world_x, b.world_y)
-            sw, sh = b.pixel_width * z, b.pixel_height * z
-            r = pygame.Rect(int(sx), int(sy), int(sw), int(sh))
-            pygame.draw.rect(self.screen, b.data.color, r)
-            pygame.draw.rect(self.screen, (0, 0, 0), r, 2)
-            if z >= 0.8:
+            sw, sh = int(b.pixel_width * z), int(b.pixel_height * z)
+            if sw < 4 or sh < 4:
+                continue
+            scaled = pygame.transform.smoothscale(sprite, (sw, sh))
+            self.screen.blit(scaled, (int(sx), int(sy)))
+            # Building name label when zoomed in enough
+            if z >= 1.0:
                 lbl = font.render(b.data.name[:10], True, (255, 255, 255))
-                self.screen.blit(lbl, lbl.get_rect(center=r.center))
+                lbl_shadow = font.render(b.data.name[:10], True, (0, 0, 0))
+                cx = int(sx) + sw // 2 - lbl.get_width() // 2
+                cy = int(sy) - 14
+                self.screen.blit(lbl_shadow, (cx + 1, cy + 1))
+                self.screen.blit(lbl, (cx, cy))
 
     def _draw_villagers(self):
         z = self.camera.zoom
@@ -373,18 +471,36 @@ class Game:
             if not v.alive:
                 continue
             sx, sy = self.camera.world_to_screen(v.world_x, v.world_y)
-            sz = max(4, int(VILLAGER_SIZE * z))
-            pygame.draw.circle(self.screen, v.color, (int(sx), int(sy)), sz)
-            pygame.draw.circle(self.screen, (0, 0, 0), (int(sx), int(sy)), sz, 1)
-            # Health bar
-            if v.health < 100 and z >= 0.7:
-                bw = sz * 3
-                bx, by = int(sx - bw / 2), int(sy - sz - 6)
-                pygame.draw.rect(self.screen, (60, 0, 0), (bx, by, bw, 3))
-                hw = int(bw * v.health / 100)
-                pygame.draw.rect(self.screen,
-                                 UI_GREEN if v.health > 50 else UI_RED,
-                                 (bx, by, hw, 3))
+            sprite = self.villager_sprites.get(v.id)
+            if sprite is None:
+                self._cache_villager_sprite(v)
+                sprite = self.villager_sprites[v.id]
+            sz = max(8, int(VILLAGER_SIZE * 2 * z))
+            scaled = pygame.transform.smoothscale(sprite, (sz, sz))
+            self.screen.blit(scaled, (int(sx) - sz // 2, int(sy) - sz // 2))
+            # Needs bars
+            if z >= 0.7:
+                bar_w = max(8, sz)
+                bar_h = max(2, int(3 * z))
+                bx = int(sx) - bar_w // 2
+                # Health bar
+                if v.health < 100:
+                    by = int(sy) - sz // 2 - bar_h - 2
+                    self._draw_bar(bx, by, bar_w, bar_h,
+                                   v.health / 100, UI_GREEN if v.health > 50 else UI_RED)
+                # Hunger bar (orange)
+                if v.hunger < 60:
+                    by = int(sy) - sz // 2 - (bar_h + 2) * 2
+                    self._draw_bar(bx, by, bar_w, bar_h,
+                                   v.hunger / 100, (220, 160, 40))
+
+    def _draw_bar(self, x, y, w, h, ratio, color):
+        """Draw a small UI bar with background."""
+        bg = pygame.Surface((w + 2, h + 2), pygame.SRCALPHA)
+        bg.fill((0, 0, 0, 120))
+        self.screen.blit(bg, (x - 1, y - 1))
+        fill_w = max(1, int(w * ratio))
+        pygame.draw.rect(self.screen, color, (x, y, fill_w, h))
 
     def _draw_ghost(self):
         mx, my = pygame.mouse.get_pos()
@@ -396,39 +512,61 @@ class Game:
         ok = self._can_place(self.placement_mode, tx, ty)
         sx, sy = self.camera.world_to_screen(tx * TILE_SIZE, ty * TILE_SIZE)
         z = self.camera.zoom
-        sw = bd.size[0] * TILE_SIZE * z
-        sh = bd.size[1] * TILE_SIZE * z
-        ghost = pygame.Surface((int(sw), int(sh)), pygame.SRCALPHA)
-        ghost.fill((60, 200, 60, 100) if ok else (200, 60, 60, 100))
-        self.screen.blit(ghost, (int(sx), int(sy)))
+        sw = int(bd.size[0] * TILE_SIZE * z)
+        sh = int(bd.size[1] * TILE_SIZE * z)
+        # Draw a transparent preview of the actual building sprite
+        preview = generate_building_sprite(
+            self.placement_mode, bd.size[0] * TILE_SIZE, bd.size[1] * TILE_SIZE)
+        preview = pygame.transform.smoothscale(preview, (sw, sh))
+        tint = pygame.Surface((sw, sh), pygame.SRCALPHA)
+        tint.fill((60, 220, 60, 80) if ok else (220, 60, 60, 80))
+        preview.blit(tint, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+        preview.set_alpha(160)
+        self.screen.blit(preview, (int(sx), int(sy)))
         pygame.draw.rect(self.screen, UI_GREEN if ok else UI_RED,
-                         (int(sx), int(sy), int(sw), int(sh)), 2)
+                         (int(sx), int(sy), sw, sh), 2)
 
     def _draw_selection(self):
         s = self.selected
         if isinstance(s, BuildingInstance):
             sx, sy = self.camera.world_to_screen(s.world_x, s.world_y)
             z = self.camera.zoom
-            pygame.draw.rect(self.screen, UI_ACCENT,
-                             (int(sx) - 2, int(sy) - 2,
-                              int(s.pixel_width * z) + 4,
-                              int(s.pixel_height * z) + 4), 3)
+            w = int(s.pixel_width * z)
+            h = int(s.pixel_height * z)
+            # Animated golden border
+            t = pygame.time.get_ticks() % 1000 / 1000
+            alpha = int(180 + 75 * math.sin(t * math.pi * 2))
+            border = pygame.Surface((w + 6, h + 6), pygame.SRCALPHA)
+            pygame.draw.rect(border, (*UI_ACCENT, alpha),
+                             (0, 0, w + 6, h + 6), 3, border_radius=2)
+            self.screen.blit(border, (int(sx) - 3, int(sy) - 3))
         elif isinstance(s, Villager) and s.alive:
             sx, sy = self.camera.world_to_screen(s.world_x, s.world_y)
-            sz = max(6, int(VILLAGER_SIZE * self.camera.zoom * 1.5))
-            pygame.draw.circle(self.screen, UI_ACCENT, (int(sx), int(sy)), sz, 2)
+            sz = max(8, int(VILLAGER_SIZE * self.camera.zoom * 2))
+            t = pygame.time.get_ticks() % 1000 / 1000
+            alpha = int(180 + 75 * math.sin(t * math.pi * 2))
+            ring = pygame.Surface((sz * 2 + 4, sz * 2 + 4), pygame.SRCALPHA)
+            pygame.draw.circle(ring, (*UI_ACCENT, alpha),
+                               (sz + 2, sz + 2), sz, 2)
+            self.screen.blit(ring, (int(sx) - sz - 2, int(sy) - sz - 2))
 
     def _draw_daynight(self):
         h = self.time_mgr.game_hour
         if DAWN_HOUR <= h < DAY_HOUR:
             t = (h - DAWN_HOUR) / (DAY_HOUR - DAWN_HOUR)
-            color = (255, 180, 100, int(60 * (1 - t)))
+            # Warm golden dawn
+            color = (255, 190, 110, int(50 * (1 - t)))
         elif DAY_HOUR <= h < DUSK_HOUR:
             color = (0, 0, 0, 0)
         elif DUSK_HOUR <= h < NIGHT_HOUR:
             t = (h - DUSK_HOUR) / (NIGHT_HOUR - DUSK_HOUR)
-            color = (40, 20, 80, int(80 * t))
+            # Purple-orange sunset
+            r = int(60 * t)
+            g = int(20 * t)
+            b = int(80 * t)
+            color = (r, g, b, int(70 * t))
         else:
-            color = (10, 10, 50, 90)
+            # Deep blue night
+            color = (8, 8, 45, 100)
         self.dn_surface.fill(color)
         self.screen.blit(self.dn_surface, (MAP_VIEW_X, MAP_VIEW_Y))
